@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astronomy"
+version = "1.0.0"
+description = "Sidereal (Lahiri) planet positions, lagna, rise/set times and eclipses on the Swiss Ephemeris"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "pyswisseph>=2.10.03",
+    "pytz>=2023.3",
+]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+]
+
+[tool.setuptools.packages.find]
+include = ["astronomy*"]
