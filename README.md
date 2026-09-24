@@ -3,7 +3,8 @@
 Sidereal (Lahiri ayanamsa) astronomy on the [Swiss Ephemeris](https://www.astro.com/swisseph/):
 
 - **`astronomy.ephemeris`**: geocentric planet positions and speeds
-  (`get_planet_position`), lagna / ascendant (`calculate_lagna`), sunrise,
+  (`get_planet_position`, planets by name: `"Sun"`, `"Moon"`, `"Mars"`,
+  `"Mercury"`, `"Jupiter"`, `"Venus"`, `"Saturn"`, `"Rahu"`), lagna / ascendant (`calculate_lagna`), sunrise,
   sunset, moonrise and moonset (Hindu rising: disc centre, no refraction),
   and eclipse search (`get_eclipses`).
 - **`astronomy.eclipse`**: `Eclipse(start, end, place, "solar" | "lunar" | "both")`
@@ -25,7 +26,7 @@ import swisseph as swe
 from astronomy.ephemeris import get_planet_position, get_sunrise
 
 jd = swe.julday(2026, 9, 23, 6.5)                            # Julian day, UT
-moon_longitude = get_planet_position(jd, 19.076, 72.8777, swe.MOON)
+moon_longitude = get_planet_position(jd, 19.076, 72.8777, "Moon")
 sunrise_jd = get_sunrise(jd, 19.076, 72.8777)
 ```
 
@@ -38,8 +39,9 @@ from astronomy import ephemeris
 ephemeris.set_position_cache(my_cache)   # None removes it
 ```
 
-`my_cache` is any object with `lookup(planet, jd)`, returning
-`(longitude, latitude, speed)` or `None`, and `store(planet, jd, values)`.
+`my_cache` is any object with `lookup(planet_id, jd)`, returning
+`(longitude, latitude, speed)` or `None`, and `store(planet_id, jd, values)`.
+`planet_id` is the Swiss Ephemeris body id (`planet_id("Moon")`).
 Positions are geocentric, so the observer's latitude and longitude are not part
 of the key.
 

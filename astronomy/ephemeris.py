@@ -18,9 +18,8 @@ import logging
 
 logger = logging.getLogger("muhurat")
 
-# Swiss Ephemeris body ids by name, so modules that only need a position
-# (combustion, retrograde) can ask get_planet_position for it without
-# importing swisseph themselves.
+# Planet names accepted by get_planet_position, and the Swiss Ephemeris body
+# each one means. Callers pass names; only this module knows the ids.
 PLANET_IDS = {
     "Sun":     swe.SUN,
     "Moon":    swe.MOON,
@@ -29,7 +28,18 @@ PLANET_IDS = {
     "Jupiter": swe.JUPITER,
     "Venus":   swe.VENUS,
     "Saturn":  swe.SATURN,
+    "Rahu":    swe.MEAN_NODE,   # mean lunar node; Ketu is Rahu + 180 degrees
 }
+
+
+def planet_id(name):
+    """Swiss Ephemeris body id for a planet name in PLANET_IDS."""
+    try:
+        return PLANET_IDS[name]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"unknown planet {name!r}; expected one of {sorted(PLANET_IDS)}"
+        ) from None
 
 # Optional position cache. None (the default) means every position is computed.
 # Any object with lookup(planet, jd) -> (longitude, latitude, speed) | None and
@@ -48,14 +58,18 @@ def set_position_cache(cache):
 def get_planet_position(julian_date,latitude,longitude,planet,mode = "pos"):
     """Sidereal (Lahiri) geocentric position of ``planet`` at ``julian_date``.
 
+    ``planet`` is a name from PLANET_IDS ("Sun", "Moon", "Mars", "Mercury",
+    "Jupiter", "Venus", "Saturn", "Rahu"); anything else raises ValueError.
+
     mode "pos" -> longitude; "both" -> (longitude, speed);
     "full" -> (longitude, ecliptic latitude, speed).
 
     Served from the registered position cache (see set_position_cache) when
-    it has one; the observer's latitude/longitude never enter the cache key
-    because the position is geocentric.
+    it has one. The cache is keyed on the Swiss Ephemeris body id and the
+    Julian day; the observer's latitude/longitude never enter the key because
+    the position is geocentric.
     """
-    lon, lat, speed = _position(julian_date, latitude, longitude, planet)
+    lon, lat, speed = _position(julian_date, latitude, longitude, planet_id(planet))
     if mode == "full":
         return lon, lat, speed
     if mode == "both":
