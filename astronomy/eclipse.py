@@ -280,6 +280,7 @@ class Eclipse:
             sunset_jd  = None
             eclipse_start_local_jd = eclipse_start_jd
             eclipse_end_local_jd   = eclipse_end_jd
+            shown_max_jd           = max_jd
             started_before_sunrise = False
             ends_after_sunset      = False
 
@@ -307,6 +308,16 @@ class Eclipse:
                             eclipse_end_local_jd   = min(eclipse_end_jd,   sunset_jd)
                             started_before_sunrise = eclipse_start_jd < sunrise_jd
                             ends_after_sunset      = eclipse_end_jd   > sunset_jd
+                            # Keep the maximum inside the span just clipped. When the
+                            # geometric maximum is below the horizon, sol_eclipse_when_loc
+                            # returns ITS sunrise/sunset (upper limb, refracted) as tret[0];
+                            # get_sunrise/get_sunset use the disc centre, unrefracted, so
+                            # the reported maximum fell up to a couple of minutes outside
+                            # the visible span (2031-11-14, lat 20 lon 160: maximum 19:30:34
+                            # UT, visible start 19:32:06). The most the observer sees is
+                            # then at that edge. Only the reported maximum moves; the
+                            # sign (_add_sign) and _max_jd keep their own instants.
+                            shown_max_jd = min(max(max_jd, eclipse_start_local_jd), eclipse_end_local_jd)
                             if started_before_sunrise or ends_after_sunset:
                                 visibility_description = (
                                     f"Partially visible (magnitude: {magnitude:.3f})"
@@ -325,7 +336,7 @@ class Eclipse:
             }
 
             event['eclipse_start'],       event['eclipse_start_utc']       = _jd_to_local_and_utc(eclipse_start_jd,       self._timezone)
-            event['eclipse_maximum'],     event['eclipse_maximum_utc']     = _jd_to_local_and_utc(max_jd,                 self._timezone)
+            event['eclipse_maximum'],     event['eclipse_maximum_utc']     = _jd_to_local_and_utc(shown_max_jd,           self._timezone)
             event['eclipse_end'],         event['eclipse_end_utc']         = _jd_to_local_and_utc(eclipse_end_jd,         self._timezone)
             event['eclipse_start_local'], event['eclipse_start_local_utc'] = _jd_to_local_and_utc(eclipse_start_local_jd, self._timezone)
             event['eclipse_end_local'],   event['eclipse_end_local_utc']   = _jd_to_local_and_utc(eclipse_end_local_jd,   self._timezone)
