@@ -7,11 +7,13 @@ observance period) timings calculated using seasonal prahar lengths.
 
 Sutak rules (Vedic):
   Solar (all types):  4 day-prahars before first contact (C1)
-  Lunar – Total:      3 night-prahars before penumbral start (U1)
-  Lunar – Partial:    1 night-prahar  before penumbral start (U1)
+  Lunar – Total:      3 night-prahars before sparsha (umbral first contact, U1)
+  Lunar – Partial:    1 night-prahar  before sparsha (U1)
   Lunar – Penumbral:  No Sutak (not visible to naked eye)
   Vulnerable groups (children <5, elderly, sick): 1 prahar only
-  Sutak ends at last contact (moksha): C4 for solar, U6 for lunar
+  Sutak ends at last contact (moksha): C4 for solar, U4 for lunar
+  All contacts are the VISIBLE ones: clipped to the horizon at the place, and
+  an eclipse whose luminary is below the horizon throughout owes no sutak.
 """
 from datetime import datetime
 
@@ -20,7 +22,7 @@ import pytz
 
 import logging
 
-from .ephemeris import get_sunrise, get_sunset, get_moonrise, get_moonset
+from .ephemeris import get_sunrise, get_sunset, get_moonrise, get_moonset, get_planet_position
 
 logger = logging.getLogger("muhurat")
 
@@ -76,6 +78,44 @@ def _duration_minutes(start_jd, end_jd):
     if not start_jd or not end_jd:
         return 0.0
     return (end_jd - start_jd) * 24.0 * 60.0
+
+
+def _moon_altitude(jd, lat, lon):
+    """Apparent altitude of the Moon's centre, degrees (standard refraction)."""
+    xx, _ = swe.calc_ut(jd, swe.MOON, swe.FLG_SWIEPH)
+    return swe.azalt(jd, swe.ECL2HOR, (lon, lat, 0.0), 1013.25, 15.0, xx[:3])[2]
+
+
+def _moon_up_span(start_jd, end_jd, lat, lon, step_min=1.0):
+    """(first, last) instants in [start_jd, end_jd] at which the Moon is above
+    the horizon, each refined to about a second; (None, None) if it never is.
+
+    Replaces bracketing the eclipse with get_moonrise/get_moonset anchored at
+    the maximum, which for an eclipse whose maximum falls after moonset (a
+    morning lunar eclipse) picked the NEXT moonrise and the moonset after it,
+    and so marked an eclipse visible while the Moon was below the horizon
+    throughout (New Delhi, 2026-08-28: -48 degrees at maximum)."""
+    step = step_min / 1440.0
+    n = max(1, int((end_jd - start_jd) / step))
+    ts = [start_jd + i * (end_jd - start_jd) / n for i in range(n + 1)]
+    up = [_moon_altitude(t, lat, lon) > 0 for t in ts]
+    if not any(up):
+        return None, None
+
+    def edge(a, b, rising):
+        for _ in range(12):             # 1 min / 2**12 < 0.02 s
+            m = (a + b) / 2
+            if (_moon_altitude(m, lat, lon) > 0) == rising:
+                b = m
+            else:
+                a = m
+        return b if rising else a
+
+    i = up.index(True)
+    j = len(up) - 1 - up[::-1].index(True)
+    first = ts[i] if i == 0 else edge(ts[i - 1], ts[i], True)
+    last = ts[j] if j == len(ts) - 1 else edge(ts[j], ts[j + 1], False)
+    return first, last
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +344,7 @@ class Eclipse:
                 eclipse_start_local_jd, eclipse_end_local_jd,
                 sunrise_jd, sunset_jd
             )
+            self._add_sign(event, max_jd)
             self._eclipses.append(event)
 
             # Advance past this eclipse (always use global max to drive the loop)
@@ -385,32 +426,31 @@ class Eclipse:
             moonset_jd  = None
 
             try:
-                # Anchor 18 h before maximum: finds the eclipse-night moonrise
-                moonrise_jd = get_moonrise(max_jd - 0.75, self._latitude, self._longitude)
-                # Anchor at maximum: finds the following morning's moonset
-                moonset_jd  = get_moonset(max_jd, self._latitude, self._longitude)
-
-                if moonrise_jd and moonset_jd and moonrise_jd < moonset_jd:
-                    # Visible window = intersection of [P1, P4] and [moonrise, moonset]
-                    visible_start = max(eclipse_start_jd, moonrise_jd)
-                    visible_end   = min(eclipse_end_jd,   moonset_jd)
-
-                    if visible_start < visible_end:
-                        is_visible_locally      = True
-                        eclipse_start_local_jd  = visible_start
-                        eclipse_end_local_jd    = visible_end
-                        started_before_moonrise = eclipse_start_jd < moonrise_jd
-                        ends_after_moonset      = eclipse_end_jd   > moonset_jd
-                        if started_before_moonrise or ends_after_moonset:
-                            visibility_description = (
-                                "Partially visible (moon above horizon)"
-                                + (" — moon rises already eclipsed" if started_before_moonrise else "")
-                                + (" — eclipse continues past moonset" if ends_after_moonset else "")
-                            )
-                        else:
-                            visibility_description = "Potentially visible (moon above horizon)"
+                # The Moon's own altitude over the eclipse proper: the visible
+                # portion is the span it is above the horizon (_moon_up_span).
+                # For a partial or total eclipse that is the UMBRAL phase,
+                # sparsha (U1) to moksha (U4): the penumbra alone is not seen
+                # as a grahana, so a Moon that sets before U1 (Mumbai,
+                # 2024-09-18) sees no eclipse and owes no sutak.
+                span = ((partial_start_jd, partial_end_jd)
+                        if partial_start_jd and partial_end_jd
+                        else (eclipse_start_jd, eclipse_end_jd))
+                visible_start, visible_end = _moon_up_span(
+                    span[0], span[1], self._latitude, self._longitude)
+                if visible_start is not None and visible_start < visible_end:
+                    is_visible_locally      = True
+                    eclipse_start_local_jd  = visible_start
+                    eclipse_end_local_jd    = visible_end
+                    started_before_moonrise = visible_start > span[0]
+                    ends_after_moonset      = visible_end   < span[1]
+                    if started_before_moonrise or ends_after_moonset:
+                        visibility_description = (
+                            "Partially visible (moon above horizon)"
+                            + (" — moon rises already eclipsed" if started_before_moonrise else "")
+                            + (" — eclipse continues past moonset" if ends_after_moonset else "")
+                        )
                     else:
-                        visibility_description = "Eclipse outside moon's above-horizon window"
+                        visibility_description = "Potentially visible (moon above horizon)"
             except Exception as e:
                 logger.warning(f"Lunar eclipse visibility/horizon check failed: {e}")
                 visibility_description = "Moon visibility could not be determined"
@@ -442,9 +482,32 @@ class Eclipse:
 
             self._add_sutak_lunar(event, eclipse_start_local_jd, eclipse_end_local_jd, subtype,
                                   moonrise_jd, moonset_jd)
+            self._add_sign(event, max_jd)
             self._eclipses.append(event)
 
             current_jd = max_jd + 1.0
+
+    # ------------------------------------------------------------------
+    # Rashi of the eclipse
+    # ------------------------------------------------------------------
+
+    _SIGNS = ("Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo", "Libra",
+              "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces")
+
+    def _add_sign(self, event, max_jd):
+        """The rashi the eclipse falls in: the eclipsed luminary's sidereal
+        (Lahiri) sign at maximum, the Sun's for a solar eclipse and the Moon's
+        for a lunar one. MC 4.3 grades an eclipse by this sign's house from the
+        native's janma rashi."""
+        body = 'Sun' if event['type'] == 'Solar' else 'Moon'
+        try:
+            lon = get_planet_position(max_jd, self._latitude, self._longitude, body)
+            event['sidereal_longitude'] = lon
+            event['sign'] = self._SIGNS[int(lon // 30) % 12]
+        except Exception as e:
+            logger.warning(f"Eclipse sign calculation failed: {e}")
+            event['sidereal_longitude'] = None
+            event['sign'] = None
 
     # ------------------------------------------------------------------
     # Sutak calculation helpers
